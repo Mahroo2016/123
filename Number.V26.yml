@@ -15,7 +15,12 @@ jobs:
           mkdir -p app/src/main/java/com/example/dailynumber
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/xml
-
+          
+          cat > gradle.properties <<'PROPERTIES'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          PROPERTIES
+          
           cat > settings.gradle <<'GRADLE'
           pluginManagement {
               repositories {

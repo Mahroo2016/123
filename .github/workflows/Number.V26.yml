@@ -1,0 +1,263 @@
+name: Build APK V26
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create Android project
+        shell: bash
+        run: |
+          set -e
+          mkdir -p app/src/main/java/com/example/dailynumber
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/xml
+
+          cat > settings.gradle <<'GRADLE'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "DailyNumber"
+          include(":app")
+          GRADLE
+
+          cat > build.gradle <<'GRADLE'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+          }
+          GRADLE
+
+          cat > app/build.gradle <<'GRADLE'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.example.dailynumber'
+              compileSdk 35
+              defaultConfig {
+                  applicationId 'com.example.dailynumber'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 26
+                  versionName "2.6"
+              }
+          }
+          GRADLE
+
+          cat > app/src/main/res/values/strings.xml <<'XML'
+          <resources><string name="app_name">عدد روزانه</string></resources>
+          XML
+
+          cat > app/src/main/res/values/styles.xml <<'XML'
+          <resources>
+              <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowLightStatusBar">true</item>
+                  <item name="android:statusBarColor">#FFFFFF</item>
+                  <item name="android:navigationBarColor">#FFFFFF</item>
+                  <item name="android:colorAccent">#6750A4</item>
+              </style>
+          </resources>
+          XML
+
+          cat > app/src/main/res/xml/file_paths.xml <<'XML'
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+              <files-path name="files" path="." />
+              <cache-path name="cache" path="." />
+              <external-files-path name="external_files" path="." />
+          </paths>
+          XML
+
+          cat > app/src/main/AndroidManifest.xml <<'XML'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:theme="@style/AppTheme"
+                  android:label="@string/app_name"
+                  android:allowBackup="true"
+                  android:supportsRtl="true">
+                  <activity android:name=".MainActivity" android:screenOrientation="portrait" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="com.example.dailynumber.fileprovider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+                  </provider>
+              </application>
+          </manifest>
+          XML
+
+          # Use AndroidX FileProvider for safe APK sharing.
+          python3 - <<'PY'
+          p='app/build.gradle'
+          s=open(p).read()
+          s=s.replace("defaultConfig {", "dependencies { implementation 'androidx.core:core:1.13.1' }\n\ndefaultConfig {")
+          open(p,'w').write(s)
+          PY
+
+          cat > app/src/main/java/com/example/dailynumber/MainActivity.java <<'JAVA'
+          package com.example.dailynumber;
+
+          import android.app.*;
+          import android.os.*;
+          import android.content.*;
+          import android.content.pm.ApplicationInfo;
+          import android.database.Cursor;
+          import android.graphics.*;
+          import android.graphics.drawable.GradientDrawable;
+          import android.net.Uri;
+          import android.provider.Settings;
+          import android.view.*;
+          import android.view.inputmethod.InputMethodManager;
+          import android.widget.*;
+          import java.io.*;
+          import java.text.*;
+          import java.util.*;
+          import org.json.*;
+
+          public class MainActivity extends Activity {
+              private static final String PREF="daily_number_v26";
+              private SharedPreferences prefs;
+              private JSONObject data;
+              private TextView totalText, selectedDateText;
+              private EditText valueInput;
+              private LinearLayout listLayout;
+              private String selectedKey;
+              private int page=0;
+              private LinearLayout root, content;
+
+              @Override public void onCreate(Bundle b){
+                  super.onCreate(b);
+                  getWindow().setStatusBarColor(Color.WHITE);
+                  getWindow().setNavigationBarColor(Color.WHITE);
+                  getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+                  prefs=getSharedPreferences(PREF,MODE_PRIVATE); loadData(); showMain();
+              }
+
+              private void loadData(){ try{data=new JSONObject(prefs.getString("json","{}"));}catch(Exception e){data=new JSONObject();} }
+              private void saveData(){prefs.edit().putString("json",data.toString()).apply();}
+
+              private TextView tv(String s,float sp){TextView v=new TextView(this);v.setText(s);v.setTextSize(sp);v.setTextColor(Color.rgb(30,30,30));v.setPadding(12,10,12,10);return v;}
+              private Button btn(String s){Button b=new Button(this);b.setText(s);b.setTextSize(14);return b;}
+              private GradientDrawable bg(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(radius);return g;}
+
+              private void base(String title){
+                  root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(18,10,18,10);root.setBackgroundColor(Color.WHITE);
+                  LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
+                  TextView t=tv(title,23);t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);t.setGravity(Gravity.CENTER);header.addView(t,new LinearLayout.LayoutParams(0,-2,1));
+                  Button menu=btn(page==0?"گزارش و امکانات":"ثبت روزانه");
+                  header.addView(menu,new LinearLayout.LayoutParams(-2,-2));
+                  menu.setOnClickListener(v->{if(page==0)showStats();else showMain();});
+                  root.addView(header);
+                  content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);root.addView(content,new LinearLayout.LayoutParams(-1,0,1));
+                  setContentView(root);
+              }
+
+              private void showMain(){page=0;base("عدد روزانه");
+                  totalText=tv("",19);totalText.setGravity(Gravity.CENTER);totalText.setTypeface(Typeface.DEFAULT,Typeface.BOLD);content.addView(totalText);
+                  LinearLayout dateRow=new LinearLayout(this);dateRow.setGravity(Gravity.CENTER_VERTICAL);
+                  selectedDateText=tv("",17);selectedDateText.setGravity(Gravity.CENTER);Button dateBtn=btn("انتخاب تاریخ شمسی");
+                  dateRow.addView(selectedDateText,new LinearLayout.LayoutParams(0,-2,1));dateRow.addView(dateBtn,new LinearLayout.LayoutParams(-2,-2));content.addView(dateRow);
+                  dateBtn.setOnClickListener(v->showJalaliPicker());
+                  valueInput=new EditText(this);valueInput.setHint("عدد را وارد کنید");valueInput.setInputType(2);valueInput.setGravity(Gravity.CENTER);content.addView(valueInput,new LinearLayout.LayoutParams(-1,-2));
+                  LinearLayout actions=new LinearLayout(this);Button save=btn("ثبت"),edit=btn("اصلاح"),reset=btn("ریست");actions.addView(save,new LinearLayout.LayoutParams(0,-2,1));actions.addView(edit,new LinearLayout.LayoutParams(0,-2,1));actions.addView(reset,new LinearLayout.LayoutParams(0,-2,1));content.addView(actions);
+                  TextView h=tv("روزهای ثبت‌شده",18);h.setTypeface(Typeface.DEFAULT,Typeface.BOLD);content.addView(h);
+                  ScrollView sc=new ScrollView(this);listLayout=new LinearLayout(this);listLayout.setOrientation(LinearLayout.VERTICAL);sc.addView(listLayout);content.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
+                  save.setOnClickListener(v->saveSelected(false));edit.setOnClickListener(v->saveSelected(true));reset.setOnClickListener(v->confirmReset());
+                  selectToday();refreshList();
+              }
+
+              private void showStats(){page=1;base("گزارش و امکانات");
+                  TextView stats=tv(makeStats(),17);stats.setGravity(Gravity.CENTER);content.addView(stats,new LinearLayout.LayoutParams(-1,-2));
+                  ChartView chart=new ChartView(this);content.addView(chart,new LinearLayout.LayoutParams(-1,260));
+                  Button export=btn("اشتراک‌گذاری گزارش");Button shareApp=btn("ارسال برنامه به دیگران");Button reset=btn("ریست همه اطلاعات");
+                  content.addView(export);content.addView(shareApp);content.addView(reset);
+                  export.setOnClickListener(v->shareReport());shareApp.setOnClickListener(v->shareApp());reset.setOnClickListener(v->confirmReset());
+                  TextView note=tv("اطلاعات روی خود گوشی ذخیره می‌شود و با بستن برنامه پاک نمی‌شود. برای انتقال اطلاعات به گوشی دیگر، از اشتراک‌گذاری گزارش استفاده کنید.",14);note.setGravity(Gravity.CENTER);content.addView(note);
+              }
+
+              private String makeStats(){
+                  ArrayList<String> ks=keys();long total=0,max=0,min=Long.MAX_VALUE;String maxK="",minK="";
+                  for(String k:ks){long n=num(k);total+=n;if(n>max){max=n;maxK=k;}if(n<min){min=n;minK=k;}}
+                  long avg=ks.isEmpty()?0:total/ks.size();if(min==Long.MAX_VALUE)min=0;
+                  return "جمع کل: "+total+"\nتعداد روزهای ثبت‌شده: "+ks.size()+"\nمیانگین روزانه: "+avg+"\nبیشترین: "+max+(maxK.isEmpty()?"":"  ("+jalaliFromKey(maxK)+")")+"\nکمترین: "+min+(minK.isEmpty()?"":"  ("+jalaliFromKey(minK)+")");
+              }
+
+              private void selectToday(){Calendar c=Calendar.getInstance();selectedKey=key(c.get(Calendar.YEAR),c.get(Calendar.MONTH)+1,c.get(Calendar.DAY_OF_MONTH));showSelected();}
+              private String key(int y,int m,int d){return String.format(Locale.US,"%04d-%02d-%02d",y,m,d);}
+              private long num(String k){try{return data.getLong(k);}catch(Exception e){return 0;}}
+              private ArrayList<String> keys(){ArrayList<String> a=new ArrayList<>();Iterator<String> it=data.keys();while(it.hasNext())a.add(it.next());Collections.sort(a);return a;}
+
+              private void showSelected(){if(selectedDateText==null)return;selectedDateText.setText("تاریخ: "+jalaliFromKey(selectedKey));try{valueInput.setText(data.has(selectedKey)?String.valueOf(data.getLong(selectedKey)):"");}catch(Exception e){valueInput.setText("");}}
+
+              private void showJalaliPicker(){
+                  int[] j=gregToJalali(selectedKey);LinearLayout box=new LinearLayout(this);box.setGravity(Gravity.CENTER);box.setPadding(20,10,20,10);
+                  NumberPicker y=new NumberPicker(this),m=new NumberPicker(this),d=new NumberPicker(this);y.setMinValue(1300);y.setMaxValue(1500);m.setMinValue(1);m.setMaxValue(12);d.setMinValue(1);d.setMaxValue(31);y.setValue(j[0]);m.setValue(j[1]);d.setValue(j[2]);box.addView(y);box.addView(m);box.addView(d);
+                  AlertDialog dlg=new AlertDialog.Builder(this).setTitle("انتخاب تاریخ شمسی").setView(box).setNegativeButton("لغو",null).setPositiveButton("انتخاب",null).create();
+                  dlg.setOnShowListener(x->dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{int yy=y.getValue(),mm=m.getValue(),dd=d.getValue();int[] g=jalaliToGreg(yy,mm,dd);if(g==null){Toast.makeText(this,"تاریخ نامعتبر است",Toast.LENGTH_SHORT).show();return;}selectedKey=key(g[0],g[1],g[2]);showSelected();dlg.dismiss();}));dlg.show();
+              }
+
+              private void saveSelected(boolean edit){String s=valueInput.getText().toString().trim();if(s.isEmpty()){Toast.makeText(this,"لطفاً عدد را وارد کنید",Toast.LENGTH_SHORT).show();return;}try{long n=Long.parseLong(s);if(n<0)throw new Exception();data.put(selectedKey,n);saveData();refreshList();if(page==1){}Toast.makeText(this,edit?"اصلاح شد":"ثبت شد",Toast.LENGTH_SHORT).show();}catch(Exception e){Toast.makeText(this,"عدد واردشده صحیح نیست",Toast.LENGTH_SHORT).show();}}
+
+              private void confirmReset(){new AlertDialog.Builder(this).setTitle("ریست اطلاعات").setMessage("همه روزهای ثبت‌شده حذف شوند؟").setNegativeButton("لغو",null).setPositiveButton("حذف",(d,w)->{data=new JSONObject();saveData();if(valueInput!=null)valueInput.setText("");if(page==0)refreshList();Toast.makeText(this,"همه اطلاعات پاک شد",Toast.LENGTH_SHORT).show();}).show();}
+
+              private void refreshList(){if(listLayout==null)return;listLayout.removeAllViews();ArrayList<String> ks=keys();long total=0;for(String k:ks)total+=num(k);if(totalText!=null)totalText.setText("جمع کل: "+total);if(ks.isEmpty()){TextView e=tv("هنوز عددی ثبت نشده است",16);e.setGravity(Gravity.CENTER);listLayout.addView(e);return;}Collections.sort(ks,Collections.reverseOrder());for(String k:ks){TextView date=tv(jalaliFromKey(k),17);date.setTypeface(Typeface.DEFAULT,Typeface.BOLD);date.setGravity(Gravity.CENTER);date.setPadding(12,16,12,16);listLayout.addView(date);View line=new View(this);line.setBackgroundColor(Color.LTGRAY);listLayout.addView(line,new LinearLayout.LayoutParams(-1,1));}}
+
+              private String jalaliFromKey(String k){String[] p=k.split("-");return jalali(Integer.parseInt(p[0]),Integer.parseInt(p[1]),Integer.parseInt(p[2]));}
+
+              // Gregorian -> Jalali
+              private String jalali(int gy,int gm,int gd){int[] gdm={0,31,28,31,30,31,30,31,31,30,31,30,31};int gy2=gy-1600,gm2=gm-1,gd2=gd-1;long gDay=365L*gy2+(gy2+3)/4-(gy2+99)/100+(gy2+399)/400;for(int i=0;i<gm2;i++)gDay+=gdm[i+1];if(gm2>1&&((gy%4==0&&gy%100!=0)||gy%400==0))gDay++;gDay+=gd2;long jDay=gDay-79,jNp=jDay/12053;jDay%=12053;int jy=(int)(979+33*jNp+4*(jDay/1461));jDay%=1461;if(jDay>=366){jy+=(int)((jDay-1)/365);jDay=(jDay-1)%365;}int jm=(jDay<186)?1+(int)(jDay/31):7+(int)((jDay-186)/30);int jd=1+(int)((jDay<186)?jDay%31:(jDay-186)%30);return String.format(Locale.US,"%04d/%02d/%02d",jy,jm,jd);}
+
+              private int[] gregToJalali(String k){String[] p=k.split("-");return gregToJalali(Integer.parseInt(p[0]),Integer.parseInt(p[1]),Integer.parseInt(p[2]));}
+              private int[] gregToJalali(int gy,int gm,int gd){String s=jalali(gy,gm,gd);String[] p=s.split("/");return new int[]{Integer.parseInt(p[0]),Integer.parseInt(p[1]),Integer.parseInt(p[2])};}
+              private int[] jalaliToGreg(int jy,int jm,int jd){
+                  if(jm<1||jm>12||jd<1||jd>31)return null;
+                  int gy=jy+621;int[] g=jalaliToGregorianRaw(jy,jm,jd);return g;
+              }
+              private int[] jalaliToGregorianRaw(int jy,int jm,int jd){
+                  int jy2=jy-979;long jDay=365L*jy2+(jy2/33)*8+((jy2%33)+3)/4;if(jm<=6)jDay+=(jm-1)*31;else jDay+=(jm-7)*30+186;jDay+=jd-1;long gDay=jDay+79;int gy=1600+400*(int)(gDay/146097);gDay%=146097;boolean leap=true;if(gDay>=36525){gDay--;gy+=100*(int)(gDay/36524);gDay%=36524;if(gDay>=365)gDay++;}gy+=4*(int)(gDay/1461);gDay%=1461;if(gDay>=366){leap=false;gDay--;gy+=(int)(gDay/365);gDay%=365;}int[] md={31,(leap?29:28),31,30,31,30,31,31,30,31,30,31};int gm=1;while(gm<=12&&gDay>=md[gm-1]){gDay-=md[gm-1];gm++;}return new int[]{gy,gm,(int)gDay+1};
+              }
+
+              private String reportText(){StringBuilder s=new StringBuilder("گزارش عدد روزانه\n\n");ArrayList<String> ks=keys();Collections.sort(ks);long total=0;for(String k:ks){long n=num(k);total+=n;s.append(jalaliFromKey(k)).append(" : ").append(n).append("\n");}s.append("\nجمع کل: ").append(total);return s.toString();}
+              private void shareReport(){Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_SUBJECT,"گزارش عدد روزانه");i.putExtra(Intent.EXTRA_TEXT,reportText());startActivity(Intent.createChooser(i,"ارسال گزارش"));}
+
+              private void shareApp(){try{ApplicationInfo ai=getApplicationInfo();File apk=new File(ai.sourceDir);Uri uri=Uri.parse("content://com.example.dailynumber.fileprovider/apk/app.apk");File dir=new File(getExternalFilesDir(null),"share");if(!dir.exists())dir.mkdirs();File copy=new File(dir,"عدد-روزانه.apk");copyFile(apk,copy);uri=androidx.core.content.FileProvider.getUriForFile(this,"com.example.dailynumber.fileprovider",copy);Intent i=new Intent(Intent.ACTION_SEND);i.setType("application/vnd.android.package-archive");i.putExtra(Intent.EXTRA_STREAM,uri);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(i,"ارسال برنامه"));}catch(Exception e){Toast.makeText(this,"ارسال برنامه انجام نشد",Toast.LENGTH_LONG).show();}}
+              private void copyFile(File a,File b)throws Exception{InputStream in=new FileInputStream(a);OutputStream out=new FileOutputStream(b);byte[] buf=new byte[8192];int n;while((n=in.read(buf))>0)out.write(buf,0,n);in.close();out.close();}
+
+              private class ChartView extends View{Paint p=new Paint(1);ChartView(Context c){super(c);p.setTypeface(Typeface.DEFAULT);}protected void onDraw(Canvas c){super.onDraw(c);ArrayList<String> ks=keys();Collections.sort(ks);int start=Math.max(0,ks.size()-14);ks=new ArrayList<>(ks.subList(start,ks.size()));if(ks.isEmpty()){p.setTextSize(34);c.drawText("هنوز داده‌ای نیست",40,100,p);return;}long max=1;for(String k:ks)max=Math.max(max,num(k));float w=getWidth()/(float)ks.size();for(int i=0;i<ks.size();i++){float h=(getHeight()-60)*(num(ks.get(i))/(float)max);float x=i*w+8;c.drawRect(x,getHeight()-40-h,x+w-10,getHeight()-40,p);p.setTextSize(10);String[] z=jalaliFromKey(ks.get(i)).split("/");c.drawText(z[2],x,getHeight()-20,p);}}}
+          }
+          JAVA
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DailyNumber-APK-V26
+          path: app/build/outputs/apk/debug/app-debug.apk
